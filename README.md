@@ -13,11 +13,11 @@ Synchronized를 사용해서 메서드 동시 접근을 막고, ExecutorService�
 ```
  @Transactional
  @Synchronized
-    fun decrease(productId: Long, quantity: Long) {
-        val productStock = productStockRepository.findByProduct_Id(productId)
-        productStock?.decrease(quantity)
-        productStock?.let { productStockRepository.saveAndFlush(it) }
-    }
+fun decrease(productId: Long, quantity: Long) {
+	val productStock = productStockRepository.findByProduct_Id(productId)
+	productStock?.decrease(quantity)
+	productStock?.let { productStockRepository.saveAndFlush(it) }
+}
 ```
 
 ```
@@ -96,16 +96,17 @@ decrease()가 끝난 후 endTransaction()이 실행되기 전에 접근을 할 �
 그렇다면 @Transactional을 제거하면 어떻게 될까? 아래처럼 주석처리하고 테스트를 다시 실행해보자.
 
 ```
-    //@Transactional
-    @Synchronized
-    fun decrease(productId: Long, quantity: Long) {
-        val productStock = productStockRepository.findByProduct_Id(productId)
-        productStock?.decrease(quantity)
-        productStock?.let { productStockRepository.saveAndFlush(it) } // @Transactional을 적용하지 않는 경우 해당 코드를 사용하여 변경사항 Flush
-    }
+//@Transactional
+@Synchronized
+fun decrease(productId: Long, quantity: Long) {
+	val productStock = productStockRepository.findByProduct_Id(productId)
+	productStock?.decrease(quantity)
+	productStock?.let { productStockRepository.saveAndFlush(it) } // @Transactional을 적용하지 않는 경우 해당 코드를 사용하여 변경사항 Flush
+}
 ```
 
 아래처럼 테스트가 성공하는 것을 볼 수 있다.
+
 ![](https://velog.velcdn.com/images/rockstar/post/3922fcdd-a99b-4d67-abaa-1d8e5cb4b6d5/image.png)
 
 다만, Synchronized를 사용하는 경우 한 개의 서버에서만 임계 영역을 보장 받기 때문에 서버가 한 개가 아닌 여러 개인 경우 Synchronized를 사용할 이유가 없어지게 된다. 그래서 실무에서도 거의 사용하지 않는다고 하기에 더 좋은 방법을 찾아야 될 것 같다.
@@ -116,48 +117,48 @@ Pessimistic Lock(비관적인 락)은 실제로 데이터에 Lock을 걸어서 �
 Lock을 통해 업데이트를 제어하기 때문에 데이터 작업에 대한 보장이 된다. 단점으로는 별도의 락을 걸기 때문에 성능 문제가 생길 수 있다는 점이 있지만, 충돌이 빈번하게 일어나는 경우에는 Optimistic Lock보다 나을 수 있다.
 
 ```
-	//Spring이 지원하는 Pessimistic 관련 Lock
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT s FROM ProductStock s WHERE s.product.id = :id")
-    fun findByProductIdWithPessimisticLock(@Param("id") productId: Long): ProductStock?
+//Spring이 지원하는 Pessimistic 관련 Lock
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+@Query("SELECT s FROM ProductStock s WHERE s.product.id = :id")
+fun findByProductIdWithPessimisticLock(@Param("id") productId: Long): ProductStock?
 ```
 
 ```
-	 @Transactional
-    fun decrease(productId: Long, quantity: Long) {
-        val productStock = productStockRepository.findByProductIdWithPessimisticLock(productId)
-        productStock?.decrease(quantity)
+ @Transactional
+fun decrease(productId: Long, quantity: Long) {
+	val productStock = productStockRepository.findByProductIdWithPessimisticLock(productId)
+	productStock?.decrease(quantity)
     }
 ```
 ```
-	@Test
-    fun `pessimisticTest`() {
+@Test
+fun `pessimisticTest`() {
 
-        val threadCount = 100;
-        val product = productRepository.findById(productId).orElseThrow()
-        val latch = CountDownLatch(threadCount)
-        val executorService: ExecutorService = Executors.newFixedThreadPool(32);
+val threadCount = 100;
+val product = productRepository.findById(productId).orElseThrow()
+val latch = CountDownLatch(threadCount)
+val executorService: ExecutorService = Executors.newFixedThreadPool(32);
 
-        for (i in 1..threadCount) {
-            executorService.submit {
-                try {
-                    pessimisticLockService.decrease(product.id, 1);
-                } finally {
-                    latch.countDown()
-                }
-            }
-        }
+for (i in 1..threadCount) {
+    executorService.submit {
+	try {
+	    pessimisticLockService.decrease(product.id, 1);
+	} finally {
+	    latch.countDown()
+	}
+    }
+}
 
-        latch.await()
+latch.await()
 
-        val savedProductStock = productStockRepository.findByProduct_Id(productId);
-        Assertions.assertThat(savedProductStock?.quantity).isEqualTo(0)
+val savedProductStock = productStockRepository.findByProduct_Id(productId);
+Assertions.assertThat(savedProductStock?.quantity).isEqualTo(0)
 
     }
 ```
 ```
 // Data에 Lock을 걸고 가져오는 쿼리 출력
-2023-07-23T19:45:23.855+09:00 DEBUG 8086 --- [ool-2-thread-13] org.hibernate.SQL                        : select p1_0.id,p1_0.product_id,p1_0.quantity from product_stock p1_0 where p1_0.product_id=? for update
+2023-07-23T19:45:23.855+09:00 DEBUG 8086 --- [ool-2-thread-13] org.hibernate.SQL: select p1_0.id,p1_0.product_id,p1_0.quantity from product_stock p1_0 where p1_0.product_id=? for update
 ```
 
 ![](https://velog.velcdn.com/images/rockstar/post/43441c68-9315-4b09-b098-148d19a077ef/image.png)
@@ -168,9 +169,9 @@ Lock을 통해 업데이트를 제어하기 때문에 데이터 작업에 대한
 Optimistic Lock(낙관적인 락)은 실제로 Lock을 사용하지 않고, 버전을 이용함으로써 정합성을 맞추는 방법이다. 먼저 데이터를 읽은 후에 Update를 수행할 때 현재 내가 읽은 버전이 맞는지 쿼리에서 조건 처리를 하여 Update를 하게 된다. 만약 조회했던 버전에서 수정사항이 생긴 경우(버전이 바뀐 경우) 다시 조회 후에 작업을 수행하도록 해야 한다.
 
 ```
- @Lock(LockModeType.OPTIMISTIC)
-    @Query("SELECT s FROM ProductStock s WHERE s.product.id = :id")
-    fun findByProductIdWithOptimisticLock(@Param("id") id: Long): ProductStock?
+@Lock(LockModeType.OPTIMISTIC)
+@Query("SELECT s FROM ProductStock s WHERE s.product.id = :id")
+fun findByProductIdWithOptimisticLock(@Param("id") id: Long): ProductStock?
 ```
 ```
 @Service
@@ -203,27 +204,27 @@ class OptimisticLockFacade(var optimisticLockService: OptimisticLockService) {
 ```
 ```
 @Test
-    fun `optimisticLockTest`() {
+fun `optimisticLockTest`() {
 
-        val threadCount = 100;
-        val product = productRepository.findById(productId).orElseThrow()
-        val latch = CountDownLatch(threadCount)
-        val executorService: ExecutorService = Executors.newFixedThreadPool(32);
+val threadCount = 100;
+val product = productRepository.findById(productId).orElseThrow()
+val latch = CountDownLatch(threadCount)
+val executorService: ExecutorService = Executors.newFixedThreadPool(32);
 
-        for (i in 1..threadCount) {
-            executorService.submit {
-                try {
-                    optimisticLockFacade.decrease(product.id, 1);
-                } finally {
-                    latch.countDown()
-                }
-            }
-        }
+for (i in 1..threadCount) {
+    executorService.submit {
+	try {
+	    optimisticLockFacade.decrease(product.id, 1);
+	} finally {
+	    latch.countDown()
+	}
+    }
+}
 
-        latch.await()
+latch.await()
 
-        val savedProductStock = productStockRepository.findByProduct_Id(productId);
-        Assertions.assertThat(savedProductStock?.quantity).isEqualTo(0)
+val savedProductStock = productStockRepository.findByProduct_Id(productId);
+Assertions.assertThat(savedProductStock?.quantity).isEqualTo(0)
 
     }
 ```
@@ -239,14 +240,14 @@ Named Lock(네임드 락)은 이름을 가진 Metadata Locking이다. 이름을 
 
 마지막으로는 역시 파사드패턴을 통해 Lock, Relase하는 코드와 재고 감소 로직을 분리시켜서 처리를 해줬다.
 ```
- @Query(value = "SELECT get_lock(:key, 3000)", nativeQuery = true)
+    @Query(value = "SELECT get_lock(:key, 3000)", nativeQuery = true)
     fun getLock(@Param("key") key: String)
 
     @Query(value = "SELECT release_lock(:key)", nativeQuery = true)
     fun releaseLock(@Param("key") key: String)
 ```
 ```
-@Transactional
+    @Transactional
     fun decrease(profileId: Long, quantity: Long){
 
         try {
@@ -259,7 +260,7 @@ Named Lock(네임드 락)은 이름을 가진 Metadata Locking이다. 이름을 
     }
 ```
 ```
-@Test
+    @Test
     fun `namedLockTest`() {
 
         val threadCount = 100;
